@@ -190,3 +190,10 @@ Keine Abhängigkeiten.
 Kein Overengineering.
 
 ➡️ Nur ein präzises Werkzeug für genau ein Problem.
+
+## 📚 Weiterführende Details
+
+Für ein vollständiges Verständnis der internen Funktionsweise siehe:
+
+👉 SYSTEM.md
+
