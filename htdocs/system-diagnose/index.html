@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>🔧 System-Diagnose</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .system-box {
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            background: transparent !important;
+            padding: 0 !important;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #0066cc;
+            padding-bottom: 10px;
+            
+        }
+        h2 {
+            color: #333;
+            margin-top: 25px;
+            margin-bottom: 15px;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            margin: 10px 5px 10px 0;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn:hover {
+            background: #0056b3;
+        }
+        .btn-success {
+            background: #28a745;
+        }
+        .btn-success:hover {
+            background: #218838;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #17a2b8;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #28a745;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #dc3545;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+        #host-result, #ssh-result {
+            display: none;
+        }
+        .loading {
+            display: none;
+            color: #666;
+            font-style: italic;
+        }
+        .result-table {
+            width: 100%;
+            margin-top: 10px;
+        }
+        .result-table td {
+            padding: 5px;
+            vertical-align: top;
+        }
+        .result-table td:first-child {
+            font-weight: bold;
+            width: 150px;
+        }
+        .terminal-container {
+            margin: 20px 0;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            background: #000;
+            height: 500px;
+            position: relative;
+        }
+        #terminal-frame {
+            width: 100%;
+            height: 100%;
+            border: none;
+            border-radius: 6px;
+        }
+        .terminal-status {
+            padding: 5px 10px;
+            background: #343a40;
+            color: #fff;
+            font-size: 12px;
+            border-radius: 6px 6px 0 0;
+        }
+        .terminal-loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            font-size: 16px;
+        }
+        .form-group {
+            margin: 15px 0;
+        }
+        .form-group label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+    
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }</style>
+</head>
+<body>
+    <div class="container">
+
+    <h1>🔧 System-Diagnose</h1>
+        
+    <div style="margin: 15px 0; padding: 12px; background: #e8f4f8; border-left: 4px solid #0066cc; border-radius: 4px;">
+        <a href="#" class="btn" onclick="goHome()">← Zurück zum Hauptinterface</a>
+    </div>
+        
+        <div class="info">
+            <strong>Zweck:</strong> Diagnose-Tools und SSH-Verbindung zum Hyper-V Host
+        </div>
+
+        <div class="warning">
+            <strong>⚠️ Hinweis:</strong> Dies ist eine Test-/Diagnose-Seite.
+        </div>
+
+        <h2>🔍 Host-Erkennung</h2>
+        <button onclick="detectHost()" class="btn btn-success">🔎 Host-IP ermitteln</button>
+        <span id="loading" class="loading">🔄 Suche läuft...</span>
+
+        <div id="host-result"></div>
+
+        <h2>🔐 SSH-Verbindung testen</h2>
+        <div class="info">
+            <strong>Zweck:</strong> Testet SSH-Zugriff auf Host und validiert VM-Identität via Hyper-V KVP
+        </div>
+
+        <form id="ssh-test-form" onsubmit="return testSSH(event)">
+            <div class="form-group">
+                <label for="ssh-host-ip">Host-IP:</label>
+                <input type="text" id="ssh-host-ip" value="" >
+            </div>
+            <div class="form-group">
+                <label for="ssh-user">Benutzer:</label>
+                <input type="text" id="ssh-user" value="Anwender" required>
+            </div>
+            <div class="form-group">
+                <label for="ssh-pass">Passwort:</label>
+                <input type="password" id="ssh-pass" required placeholder="Host-Passwort eingeben">
+            </div>
+            <button type="submit" class="btn btn-success">🔌 SSH-Verbindung testen</button>
+            <span id="ssh-loading" class="loading">🔄 Teste Verbindung...</span>
+        </form>
+
+        <div id="ssh-result"></div>
+
+        <h2>🖥️ Terminal</h2>
+        <div class="terminal-container">
+            <div class="terminal-status">
+                Web-Terminal (Port-ProxyVM: <span id="terminal-vm-ip">wird geladen...</span>)
+                <span style="float:right">Status: <span id="terminal-status-text">Startet...</span></span>
+            </div>
+            <div id="terminal-loading" class="terminal-loading">🔄 Terminal wird gestartet...</div>
+            <iframe id="terminal-frame" src="about:blank" style="display:none"></iframe>
+        </div>
+
+
+        <h2>&#127760; Netzwerk-Konfiguration</h2>
+        <div class="info">
+            <strong>VM IP-Adresse aendern.</strong>
+            Nach dem Speichern wird das Netzwerk neu gestartet.
+            Der Browser muss danach manuell auf die neue IP wechseln.
+        </div>
+
+        <div id="netconf-form" style="background:#f9f9f9; padding:15px; border-radius:4px; margin:10px 0;">
+            <div class="form-group">
+                <label>Modus:</label>
+                <select id="net-mode" onchange="toggleNetMode()" style="padding:8px; border:1px solid #ddd; border-radius:4px;">
+                    <option value="static">Statisch</option>
+                    <option value="dhcp">DHCP</option>
+                </select>
+            <div id="net-dhcp-warn" class="warning" style="display:none; margin-top:10px;">
+                <strong>&#9888; Hinweis DHCP:</strong> Nach dem Speichern bekommt die VM eine
+                unbekannte IP vom Router. Das Webinterface ist danach nur noch über die
+                neue IP erreichbar &ndash; diese bitte in der Fritzbox nachsehen.
+            </div>
+            </div>
+            <div id="net-static-fields">
+                <div class="form-group">
+                    <label>IP-Adresse:</label>
+                    <input type="text" id="net-ip" placeholder="192.168.178.20">
+                </div>
+                <div class="form-group">
+                    <label>Prefix (CIDR):</label>
+                    <input type="text" id="net-prefix" placeholder="24" style="width:60px;">
+                </div>
+                <div class="form-group">
+                    <label>Gateway:</label>
+                    <input type="text" id="net-gateway" placeholder="192.168.178.1">
+                </div>
+            </div>
+            <button class="btn btn-success" onclick="saveNetConfig()">&#128190; Speichern &amp; Netzwerk neu starten</button>
+            <span id="net-status" style="margin-left:15px; font-weight:bold;"></span>
+        </div>
+
+
+        <h2>&#11014;&#65039; System-Update</h2>
+        <div style="background:#f9f9f9; padding:15px; border-radius:4px; margin:10px 0;">
+            <p style="margin:0 0 10px 0; color:#555; font-size:13px;">
+                Führt <code>apk update &amp;&amp; apk upgrade</code> aus.
+                Kann einige Minuten dauern. Danach ggf. Neustart empfehlenswert.
+            </p>
+            <button class="btn" onclick="startUpdate()" id="update-btn">
+                &#11014;&#65039; Pakete aktualisieren
+            </button>
+            <span id="update-status" style="margin-left:15px; font-weight:bold;"></span>
+            <pre id="update-output" style="display:none; margin-top:15px;
+                background:#1e1e1e; color:#d4d4d4; padding:12px;
+                border-radius:4px; font-size:12px; max-height:300px;
+                overflow-y:auto; white-space:pre-wrap;"></pre>
+        </div>
+
+        <h2>ℹ️ Informationen</h2>
+        <ul>
+            <li><strong>VM IP:</strong> <span id="vm-ip-display">192.168.178.37</span></li>
+            <li><strong>Host IP:</strong> <span id="known-host">unbekannt</span></li>
+            <li><strong>Ziel User:</strong> Anwender</li>
+        </ul>
+
+        <hr>
+        <p><a href="#" class="btn" onclick="goHome()">← Zurück zum Hauptinterface</a></p>
+    </div>
+
+    <script>
+        let terminalStarted = false;
+
+        // Beim Laden der Seite Terminal starten und VM-IP aktualisieren
+        document.addEventListener('DOMContentLoaded', function() {
+            updateVMIP();
+            startTerminal();
+            loadNetConfig();
+        });
+
+        function updateVMIP() {
+            // VM-IP auch in Terminal-Header anzeigen
+            fetch('/cgi-bin/get-base-ip.cgi')
+                .then(r => r.text())
+                .then(function(ip) {
+                    ip = ip.trim();
+                    var el = document.getElementById('terminal-vm-ip');
+                    if (el) el.textContent = ip;
+                })
+                .catch(function(){});
+            fetch('/cgi-bin/ttyd-control.cgi?status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'ok') {
+                        document.getElementById('vm-ip-display').textContent = data.vm_ip;
+                    }
+                })
+                .catch(error => console.error('Fehler beim Laden der VM-IP:', error));
+        }
+
+        function startTerminal() {
+            fetch('/cgi-bin/ttyd-control.cgi?start')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'ok') {
+                        document.getElementById('terminal-status-text').textContent = 'Läuft (PID: ' + data.pid + ')';
+
+                        setTimeout(() => {
+                            document.getElementById('terminal-loading').style.display = 'none';
+                            const frame = document.getElementById('terminal-frame');
+                            frame.src = 'http://' + data.vm_ip + ':7681';
+                            frame.style.display = 'block';
+                            terminalStarted = true;
+                        }, 1000);
+                    } else {
+                        document.getElementById('terminal-status-text').textContent = 'Fehler';
+                        document.getElementById('terminal-loading').textContent = '❌ ' + data.message;
+                    }
+                })
+                .catch(error => {
+                    document.getElementById('terminal-status-text').textContent = 'Fehler';
+                    document.getElementById('terminal-loading').textContent = '❌ ' + error.message;
+                });
+        }
+
+        function detectHost() {
+            const loading = document.getElementById('loading');
+            const resultDiv = document.getElementById('host-result');
+
+            loading.style.display = 'inline';
+            resultDiv.style.display = 'none';
+
+            fetch('/cgi-bin/detect-host.cgi')
+                .then(response => response.json())
+                .then(data => {
+                    loading.style.display = 'none';
+                    resultDiv.style.display = 'block';
+
+                    if (data.status === 'ok') {
+                        document.getElementById('known-host').textContent = data.host_ip;
+                        // terminal-host entfernt - VM-IP wird von updateVMIP gesetzt
+                        document.getElementById('ssh-host-ip').value = data.host_ip;
+
+                        resultDiv.className = 'success';
+                        resultDiv.innerHTML = `
+                            <strong>✅ Host gefunden!</strong>
+                            <table class="result-table">
+                                <tr>
+                                    <td>IP-Adresse:</td>
+                                    <td><strong>${data.host_ip}</strong></td>
+                                </tr>
+                                <tr>
+                                    <td>Latenz:</td>
+                                    <td>${data.latency_ms} ms</td>
+                                </tr>
+                                <tr>
+                                    <td>MAC-Adresse:</td>
+                                    <td>${data.mac || 'unbekannt'}</td>
+                                </tr>
+                            </table>
+                        `;
+                    } else {
+                        resultDiv.className = 'error';
+                        resultDiv.innerHTML = `
+                            <strong>❌ Fehler:</strong> ${data.message}
+                        `;
+                    }
+                })
+                .catch(error => {
+                    loading.style.display = 'none';
+                    resultDiv.style.display = 'block';
+                    resultDiv.className = 'error';
+                    resultDiv.innerHTML = `
+                        <strong>❌ Verbindungsfehler:</strong> ${error.message}
+                    `;
+                });
+        }
+
+        function testSSH(event) {
+            event.preventDefault();
+            
+            const loading = document.getElementById('ssh-loading');
+            const resultDiv = document.getElementById('ssh-result');
+
+            const hostIP = document.getElementById('ssh-host-ip').value;
+            const user = document.getElementById('ssh-user').value;
+            const pass = document.getElementById('ssh-pass').value;
+
+            loading.style.display = 'inline';
+            resultDiv.style.display = 'none';
+
+            const formData = `host_ip=${encodeURIComponent(hostIP)}&host_user=${encodeURIComponent(user)}&host_pass=${encodeURIComponent(pass)}`;
+
+            fetch('/cgi-bin/test-ssh-connection.cgi', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: formData
+            })
+                .then(response => response.json())
+                .then(data => {
+                    loading.style.display = 'none';
+                    resultDiv.style.display = 'block';
+
+                    if (data.status === 'ok') {
+                        resultDiv.className = 'success';
+                        resultDiv.innerHTML = `
+                            <strong>✅ SSH-Verbindung erfolgreich!</strong>
+                            <table class="result-table">
+                                <tr>
+                                    <td>Status:</td>
+                                    <td><strong>Verbunden und validiert</strong></td>
+                                </tr>
+                                <tr>
+                                    <td>VM-ID (KVP):</td>
+                                    <td><code style="font-size:11px">${data.vm_id}</code></td>
+                                </tr>
+                            </table>
+                        `;
+                    } else {
+                        resultDiv.className = 'error';
+                        resultDiv.innerHTML = `
+                            <strong>❌ Fehler:</strong> ${data.message}
+                            ${data.details ? `<p style="margin-top:10px; font-size:12px"><strong>Details:</strong> ${data.details}</p>` : ''}
+                        `;
+                    }
+                })
+                .catch(error => {
+                    loading.style.display = 'none';
+                    resultDiv.style.display = 'block';
+                    resultDiv.className = 'error';
+                    resultDiv.innerHTML = `
+                        <strong>❌ Verbindungsfehler:</strong> ${error.message}
+                    `;
+                });
+
+            return false;
+        }
+
+        function goHome() {
+            document.querySelectorAll("input").forEach(function(el) {
+                el.value = "";
+                el.defaultValue = "";
+            });
+            window.location.href = "/";
+        }
+
+        function toggleNetMode() {
+            var mode = document.getElementById('net-mode').value;
+            var staticFields = document.getElementById('net-static-fields');
+            var dhcpWarn    = document.getElementById('net-dhcp-warn');
+            if (staticFields) staticFields.style.display = mode === 'static' ? 'block' : 'none';
+            if (dhcpWarn)     dhcpWarn.style.display     = mode === 'dhcp'   ? 'block' : 'none';
+        }
+
+        function loadNetConfig() {
+            fetch('/cgi-bin/get-network-config.cgi')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('net-mode').value = data.mode;
+                    if (data.mode === 'static') {
+                        document.getElementById('net-ip').value      = data.ip      || '';
+                        document.getElementById('net-prefix').value  = data.prefix  || '24';
+                        document.getElementById('net-gateway').value = data.gateway || '';
+                    }
+                    toggleNetMode();
+                })
+                .catch(function(){});
+        }
+
+        function saveNetConfig() {
+            var mode    = document.getElementById('net-mode').value;
+            var ip      = mode === 'static' ? document.getElementById('net-ip').value      : '';
+            var prefix  = mode === 'static' ? document.getElementById('net-prefix').value  : '';
+            var gateway = mode === 'static' ? document.getElementById('net-gateway').value : '';
+            var status  = document.getElementById('net-status');
+
+            if (mode === 'static') {
+                if (!ip || !prefix || !gateway) {
+                    status.innerHTML = '<span style="color:red">&#10007; Bitte alle Felder ausf\u00fcllen</span>';
+                    return;
+                }
+                if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip) || !/^\d+\.\d+\.\d+\.\d+$/.test(gateway)) {
+                    status.innerHTML = '<span style="color:red">&#10007; Ung\u00fcltige IP-Adresse</span>';
+                    return;
+                }
+                var currentIp = document.getElementById('vm-ip-display').textContent;
+                if (ip !== currentIp) {
+                    status.innerHTML = '&#128270; Pr\u00fcfe ob IP ' + ip + ' frei ist...';
+                    fetch('/cgi-bin/scan-network.cgi')
+                        .then(r => r.json())
+                        .then(scan => {
+                            if (scan.occupied && scan.occupied.includes(ip)) {
+                                status.innerHTML = '<span style="color:red">&#10007; IP ' + ip + ' ist bereits vergeben!</span>';
+                            } else {
+                                status.innerHTML = '<span style="color:green">&#10003; IP ' + ip + ' ist frei</span>';
+                                setTimeout(function() { doApplyNetConfig(mode, ip, prefix, gateway, status); }, 500);
+                            }
+                        })
+                        .catch(function() { doApplyNetConfig(mode, ip, prefix, gateway, status); });
+                    return;
+                }
+            }
+            doApplyNetConfig(mode, ip, prefix, gateway, status);
+        }
+
+        function doApplyNetConfig(mode, ip, prefix, gateway, status) {
+            status.innerHTML = '&#9203; Wird gespeichert...';
+            var body = 'mode=' + encodeURIComponent(mode) +
+                       '&ip=' + encodeURIComponent(ip) +
+                       '&prefix=' + encodeURIComponent(prefix) +
+                       '&gateway=' + encodeURIComponent(gateway);
+            fetch('/cgi-bin/set-network-config.cgi', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: body
+            })
+            .then(r => r.text())
+            .then(function(data) {
+                if (data.includes('ERFOLG')) {
+                    if (mode === 'dhcp') {
+                        status.innerHTML = '<span style="color:orange">&#10003; DHCP konfiguriert. ' +
+                            'Neue IP bitte in der Fritzbox nachsehen.</span>';
+                    } else {
+                        var newIp = (data.match(/NEUE_IP: (\S+)/) || [])[1] || ip;
+                        var target = 'http://' + newIp + '/system-diagnose/';
+                        var attempts = 0;
+                        function tryConnect() {
+                            attempts++;
+                            status.innerHTML = '<span style="color:green">&#10003; Warte auf ' +
+                                newIp + '... (' + attempts + '/20)</span>';
+                            fetch('http://' + newIp + '/cgi-bin/get-base-ip.cgi', {mode:'no-cors'})
+                                .then(function() { window.location.href = target; })
+                                .catch(function() {
+                                    if (attempts < 20) {
+                                        setTimeout(tryConnect, 1500);
+                                    } else {
+                                        status.innerHTML = 'Bitte manuell: <a href="' + target + '">' + target + '</a>';
+                                    }
+                                });
+                        }
+                        setTimeout(tryConnect, 2000);
+                    }
+                } else {
+                    status.innerHTML = '<span style="color:red">&#10007; ' + data + '</span>';
+                }
+            })
+            .catch(function() {
+                if (mode === 'static' && ip) {
+                    var target = 'http://' + ip + '/system-diagnose/';
+                    setTimeout(function() { window.location.href = target; }, 2000);
+                    status.innerHTML = '<span style="color:orange">Verbinde mit ' + ip + '...</span>';
+                }
+            });
+        }
+
+
+        function startUpdate() {
+            var btn    = document.getElementById('update-btn');
+            var status = document.getElementById('update-status');
+            var output = document.getElementById('update-output');
+
+            btn.disabled = true;
+            btn.textContent = '\u23f3 Läuft...';
+            status.innerHTML = '<span style="color:orange">Update läuft...</span>';
+            output.style.display = 'block';
+            output.textContent = '';
+
+            var es = new EventSource('/cgi-bin/system-update.cgi');
+
+            es.onmessage = function(e) {
+                output.textContent += e.data + '\n';
+                output.scrollTop = output.scrollHeight;
+                if (e.data.includes('=== FERTIG ===')) {
+                    es.close();
+                    btn.disabled = false;
+                    btn.textContent = '\u2b06\ufe0f Pakete aktualisieren';
+                    status.innerHTML = '<span style="color:green">&#10003; Update abgeschlossen</span>';
+                }
+            };
+
+            es.onerror = function() {
+                es.close();
+                btn.disabled = false;
+                btn.textContent = '\u2b06\ufe0f Pakete aktualisieren';
+                if (!output.textContent.includes('FERTIG')) {
+                    status.innerHTML = '<span style="color:red">&#10007; Verbindungsfehler</span>';
+                }
+            };
+        }
+
+    </script>
+
+    </div></body>
+</html>
