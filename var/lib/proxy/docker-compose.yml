@@ -1,0 +1,34 @@
+services:
+  proxy-124:
+    image: proxy-agent
+    container_name: proxy-124
+    hostname: Xiaomi-proxy
+    restart: always
+    environment:
+      DEVICE_IP: 192.168.178.24
+      DEVICE_PORT: "1445"
+      PROXY_NAME: Xiaomi-proxy
+      UUID: e08088af-965f-4c6f-846d-4bc9ef07241f
+    networks:
+      lan:
+        ipv4_address: 192.168.178.124
+
+  proxy-136:
+    image: proxy-agent
+    container_name: proxy-136
+    hostname: Tab-A9-proxy
+    restart: always
+    environment:
+      DEVICE_IP: 192.168.178.36
+      DEVICE_PORT: "1445"
+      PROXY_NAME: Tab-A9-proxy
+      UUID: 49c80a01-8713-48df-9551-d7a69895c9cc
+    networks:
+      lan:
+        ipv4_address: 192.168.178.136
+
+
+networks:
+  lan:
+    external: true
+    name: proxynet

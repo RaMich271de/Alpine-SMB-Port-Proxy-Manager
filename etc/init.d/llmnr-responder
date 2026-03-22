@@ -1,0 +1,28 @@
+#!/sbin/openrc-run
+name="llmnr-responder"
+description="LLMNR Name Responder fuer Proxy-Geraete"
+command="/usr/bin/python3"
+command_args="/usr/local/bin/llmnr-responder.py"
+command_background=true
+pidfile="/run/llmnr-responder.pid"
+output_log="/var/log/llmnr-responder.log"
+error_log="/var/log/llmnr-responder.log"
+
+depend() {
+    need net
+    after networking
+}
+
+start_pre() {
+    if [ -f "$pidfile" ]; then
+        OLD=$(cat "$pidfile")
+        kill -0 "$OLD" 2>/dev/null || rm -f "$pidfile"
+    fi
+}
+
+stop() {
+    ebegin "Stoppe LLMNR-Responder"
+    kill $(cat "$pidfile" 2>/dev/null) 2>/dev/null
+    rm -f "$pidfile"
+    eend 0
+}

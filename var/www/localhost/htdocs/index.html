@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alpine SMB Port-Proxy Manager</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1200px; margin: 50px auto; padding: 20px; background: #f5f5f5; }
+        .container { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #333; border-bottom: 2px solid #0066cc; padding-bottom: 10px; }
+        h2, h3 { color: #333; margin-top: 30px; }
+        .status-box, .devices-box, .network-box { background: #e8f4f8; padding: 15px; border-left: 4px solid #0066cc; margin: 20px 0; }
+        .status-box { min-height: 200px; }
+        .devices-box { min-height: 300px; overflow-x: auto; }
+        .network-box { min-height: 300px; }
+        iframe { border: none; width: 100%; }
+        .button { display: inline-block; padding: 10px 20px; background: #0066cc; color: white; border: none; border-radius: 4px; margin: 10px 5px; cursor: pointer; text-decoration: none; }
+        .button:hover { background: #0052a3; }
+        .button-success { background: #28a745; }
+        .button-success:hover { background: #218838; }
+        .protected-note { background: #e8f8e8; padding: 15px; border-left: 4px solid #28a745; margin: 20px 0; }
+        .add-device-form { background: #f9f9f9; padding: 20px; border-radius: 4px; margin: 20px 0; }
+        .form-row { margin: 15px 0; }
+        label { display: inline-block; width: 220px; font-weight: bold; }
+        input[type="text"], input[type="number"] { padding: 8px; width: 200px; border: 1px solid #ddd; border-radius: 4px; }
+        .status-indicator { display: inline-block; margin-left: 10px; font-weight: bold; }
+        .status-free { color: green; }
+        .status-occupied { color: red; }
+        
+        /* Tooltip Styling */
+        .info-icon { display: inline-block; width: 18px; height: 18px; background: #0066cc; color: white; border-radius: 50%; text-align: center; line-height: 18px; font-size: 12px; font-weight: bold; cursor: help; margin-left: 8px; position: relative; vertical-align: middle; }
+        .info-icon:hover { background: #0052a3; }
+        .tooltip { visibility: hidden; width: 380px; background-color: #2c3e50; color: #fff; text-align: left; border-radius: 8px; padding: 15px; position: absolute; z-index: 1000; bottom: 125%; left: 50%; margin-left: -190px; opacity: 0; transition: opacity 0.3s; font-size: 13px; font-weight: normal; line-height: 1.5; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+        .tooltip::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -6px; border-width: 6px; border-style: solid; border-color: #2c3e50 transparent transparent transparent; }
+        .info-icon:hover .tooltip { visibility: visible; opacity: 1; }
+        .tooltip strong { color: #3498db; display: block; margin-bottom: 8px; font-size: 14px; }
+        .tooltip .example { background: rgba(255,255,255,0.1); padding: 5px 8px; border-radius: 3px; margin: 8px 0; font-family: monospace; font-size: 12px; }
+        .base-ip-display { background: #e8f8e8; padding: 12px; border-radius: 4px; margin: 10px 0; border-left: 4px solid #28a745; }
+        .base-ip-display strong { color: #28a745; }
+    </style>
+    <script>
+        let occupiedIPs = [];
+        let baseIP = '';
+        let networkPrefix = '';
+        
+        window.onload = function() {
+            // Kurz nach Boot: warten bis Docker-Container bereit
+            // Wenn list-devices leer zurueckkommt, nach 8s nochmal laden
+            setTimeout(function() {
+                fetch('/cgi-bin/list-devices.cgi')
+                    .then(r => r.text())
+                    .then(function(html) {
+                        if (html.indexOf('status-active') === -1 && html.indexOf('Aktiv') === -1) {
+                            reloadDevices();
+                            reloadStatus();
+                        }
+                    })
+                    .catch(function(){});
+            }, 5000);
+
+            // Basis-IP von der VM holen
+            fetch('/cgi-bin/get-base-ip.cgi')
+                .then(response => response.text())
+                .then(data => {
+                    baseIP = data.trim();
+                    networkPrefix = baseIP.substring(0, baseIP.lastIndexOf('.'));
+                    document.getElementById('base-ip-value').textContent = baseIP;
+                    updateTooltipExamples();
+                })
+                .catch(err => {
+                    console.error('Konnte Basis-IP nicht laden:', err);
+                });
+            
+            scanNetwork();
+        };
+        
+        function updateTooltipExamples() {
+            const exampleDevice = networkPrefix + '.29';
+            const exampleProxy = networkPrefix + '.37';
+            
+            document.querySelectorAll('.tooltip .example').forEach(el => {
+                el.innerHTML = el.innerHTML
+                    .replace(/192\.168\.178\.29/g, exampleDevice)
+                    .replace(/192\.168\.178\.37/g, exampleProxy)
+                    .replace(/\[netzwerk\]/g, networkPrefix);
+            });
+        }
+        
+        function scanNetwork() {
+            document.getElementById('scan-status').innerHTML = '🔄 Scanne Netzwerk...';
+            fetch('/cgi-bin/scan-network.cgi')
+                .then(response => response.json())
+                .then(data => {
+                    occupiedIPs = data.occupied;
+                    document.getElementById('scan-status').innerHTML = 
+                        '✓ Netzwerk-Scan: ' + occupiedIPs.length + ' aktive Geräte gefunden';
+                })
+                .catch(err => {
+                    document.getElementById('scan-status').innerHTML = 
+                        '❌ Netzwerk-Scan fehlgeschlagen';
+                });
+        }
+        
+        function checkVMIP() {
+            const ip = document.getElementById('vm-ip').value;
+            const status = document.getElementById('vmip-status');
+            
+            if (!ip || ip.length < 7) {
+                status.innerHTML = '';
+                return;
+            }
+            
+            if (ip === baseIP) {
+                status.innerHTML = '<span class="status-occupied">❌ Das ist die Basis-IP (geschützt)!</span>';
+                document.getElementById('submit-btn').disabled = true;
+                return;
+            }
+            
+            if (occupiedIPs.includes(ip)) {
+                status.innerHTML = '<span class="status-occupied">❌ IP bereits belegt!</span>';
+                document.getElementById('submit-btn').disabled = true;
+            } else {
+                status.innerHTML = '<span class="status-free">✓ IP verfügbar</span>';
+                document.getElementById('submit-btn').disabled = false;
+            }
+        }
+        
+        function reloadStatus() {
+            document.getElementById('status-frame').src = '/cgi-bin/status.cgi?' + Date.now();
+        }
+        
+        function reloadDevices() {
+            document.getElementById("devices-frame").src = "/cgi-bin/list-devices.cgi?" + Date.now();
+        }
+        
+        function restartServices(event) {
+            const btn = event.target;
+            const originalHTML = btn.innerHTML;
+            
+            // Button auf "lädt" setzen - Orange
+            btn.innerHTML = "⏳ Neustart läuft...";
+            btn.className = "button";
+            btn.style.background = "#ffc107";
+            btn.disabled = true;
+            
+            fetch("/cgi-bin/restart-services.cgi")
+                .then(response => response.text())
+                .then(data => {
+                    if (data.includes("ERFOLG")) {
+                        // Erfolg anzeigen - Grün
+                        btn.innerHTML = "✓ Erfolgreich!";
+                        btn.style.background = "#28a745";
+                        reloadDevices();
+                        
+                        // Nach 2 Sekunden zurücksetzen - Blau mit Hover
+                        setTimeout(() => {
+                            btn.innerHTML = originalHTML;
+                            btn.className = "button button-success";
+                            btn.style.background = "";  // Inline-Style entfernen!
+                            btn.disabled = false;
+                        }, 2000);
+                    } else {
+                        // Fehler anzeigen - Rot
+                        btn.innerHTML = "❌ Fehler!";
+                        btn.style.background = "#dc3545";
+                        setTimeout(() => {
+                            btn.innerHTML = originalHTML;
+                            btn.className = "button button-success";
+                            btn.style.background = "";
+                            btn.disabled = false;
+                        }, 3000);
+                    }
+                })
+                .catch(err => {
+                    btn.innerHTML = "❌ Fehler!";
+                    btn.style.background = "#dc3545";
+                    setTimeout(() => {
+                        btn.innerHTML = originalHTML;
+                        btn.className = "button button-success";
+                        btn.style.background = "";
+                        btn.disabled = false;
+                    }, 3000);
+                });
+        }
+        
+        function reloadNetwork() {
+            document.getElementById('network-frame').src = '/cgi-bin/network-status.cgi?' + Date.now();
+            scanNetwork();
+        }
+        
+        function submitDevice(event) {
+            event.preventDefault();
+            
+            const deviceIP = document.getElementById('device-ip').value;
+            const devicePort = document.getElementById('device-port').value;
+            const vmIP = document.getElementById('vm-ip').value;
+            
+            if (!deviceIP || !vmIP) {
+                alert('Bitte alle Felder ausfüllen!');
+                return;
+            }
+            
+            if (vmIP === baseIP) {
+                alert('Die Basis-IP kann nicht als Proxy-IP verwendet werden!');
+                return;
+            }
+            
+            document.getElementById('submit-status').innerHTML = '⏳ Füge Weiterleitung hinzu...';
+            
+            fetch('/cgi-bin/add-device.cgi', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'device_ip=' + encodeURIComponent(deviceIP) + 
+                      '&device_port=' + encodeURIComponent(devicePort) +
+                      '&vm_ip=' + encodeURIComponent(vmIP)
+            })
+            .then(response => response.text())
+            .then(data => {
+                if (data.includes('ERFOLG')) {
+                    document.getElementById('submit-status').innerHTML = 
+                        '<span class="status-free">✓ ' + data + '</span>';
+                    document.getElementById('add-form').reset();
+                    document.getElementById('vmip-status').innerHTML = '';
+                    reloadDevices();
+                    reloadNetwork();
+                } else {
+                    document.getElementById('submit-status').innerHTML = 
+                        '<span class="status-occupied">❌ ' + data + '</span>';
+                }
+            })
+            .catch(err => {
+                document.getElementById('submit-status').innerHTML = 
+                    '<span class="status-occupied">❌ Fehler beim Hinzufügen</span>';
+            });
+        }
+        
+        function copySSH() {
+            const cmd = 'ssh root@' + (baseIP || '192.168.178.35');
+            
+            // HTTP-kompatible Kopier-Methode (execCommand)
+            const textarea = document.createElement('textarea');
+            textarea.value = cmd;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            
+            try {
+                const success = document.execCommand('copy');
+                if (success) {
+                    document.getElementById('ssh-status').innerHTML = '<span style="color:#28a745">✓ Kopiert: ' + cmd + '</span>';
+                } else {
+                    document.getElementById('ssh-status').innerHTML = '<span style="color:#dc3545">Kopieren fehlgeschlagen. Befehl: ' + cmd + '</span>';
+                }
+            } catch (err) {
+                document.getElementById('ssh-status').innerHTML = '<span style="color:#dc3545">Fehler: ' + err + '</span>';
+            }
+            
+            document.body.removeChild(textarea);
+            
+            setTimeout(() => {
+                document.getElementById('ssh-status').innerHTML = '';
+            }, 5000);
+        }
+
+        let rebootTimeout = null;
+        let rebootConfirmActive = false;
+
+        function rebootVM() {
+            if (rebootConfirmActive) {
+                // Abbrechen geklickt
+                cancelReboot();
+                return;
+            }
+            
+            // Erste Stufe: Bestätigung anzeigen
+            rebootConfirmActive = true;
+            
+            const btn = event.target;
+            btn.innerHTML = '❌ Abbrechen';
+            btn.style.background = '#6c757d';
+            
+            // Bestätigungs-Button einblenden
+            document.getElementById('reboot-confirm').style.display = 'inline-block';
+            
+            // Timeout: Nach 3 Sekunden zurücksetzen
+            rebootTimeout = setTimeout(() => {
+                cancelReboot();
+            }, 3000);
+        }
+
+        function cancelReboot() {
+            rebootConfirmActive = false;
+            clearTimeout(rebootTimeout);
+            
+            const btn = document.querySelector('[onclick="rebootVM()"]');
+            btn.innerHTML = '🔄 Alpine neu starten';
+            btn.style.background = '#dc3545';
+            
+            document.getElementById('reboot-confirm').style.display = 'none';
+            document.getElementById('reboot-status').innerHTML = '';
+        }
+
+        function executeReboot() {
+            clearTimeout(rebootTimeout);
+            rebootConfirmActive = false;
+            
+            document.getElementById('reboot-status').innerHTML = '⏳ Starte neu... (Interface nicht erreichbar für ~30 Sek)';
+            document.getElementById('reboot-confirm').style.display = 'none';
+            
+            const btn = document.querySelector('[onclick="rebootVM()"]');
+            btn.innerHTML = '🔄 Alpine neu starten';
+            btn.style.background = '#dc3545';
+            btn.disabled = true;
+            
+            fetch('/cgi-bin/reboot-vm.cgi')
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById('reboot-status').innerHTML = '✓ Neustart gesendet. Warte 30 Sek...';
+                    
+                    // Nach 30 Sek versuchen neu zu laden
+                    setTimeout(() => {
+                        location.reload();
+                    }, 30000);
+                })
+                .catch(err => {
+                    document.getElementById('reboot-status').innerHTML = '❌ Fehler: ' + err;
+                    btn.disabled = false;
+                });
+        }
+
+        // Global: Bei jedem anderen Klick Reboot-Confirm abbrechen
+        document.addEventListener('click', function(e) {
+            if (rebootConfirmActive && 
+                !e.target.closest('[onclick="rebootVM()"]') && 
+                !e.target.closest('[onclick="executeReboot()"]')) {
+                cancelReboot();
+            }
+        });
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>🖥️ Alpine SMB Port-Proxy Manager</h1>
+        
+        <div style="margin: 15px 0; padding: 12px; background: #e8f4f8; border-left: 4px solid #0066cc; border-radius: 4px;">
+            
+            <button class="button" onclick="location.href='/system-diagnose/'" style="background: #17a2b8; margin-left: 10px;">
+                🔧 System-Diagnose
+            </button>
+            <button class="button" onclick="copySSH()" style="margin-left: 5px;">
+                🖥️ SSH-Befehl kopieren
+            </button>
+            <button class="button" onclick="rebootVM()" style="background: #dc3545; margin-left: 5px;">
+                🔄 Alpine neu starten
+            </button>
+            <button id="reboot-confirm" class="button" onclick="executeReboot()" style="background: #28a745; display: none; margin-left: 5px;">
+                ✅ Jetzt wirklich neu starten
+            </button>
+            <div id="ssh-status" style="margin-top: 8px; font-size: 13px;"></div>
+            <div id="reboot-status" style="margin-top: 8px; font-size: 13px; font-weight: bold;"></div>
+        </div>
+        
+        <div class="protected-note">
+            <strong>🔒 Geschützte Basis-Konfiguration</strong><br>
+            Haupt-IP dieser VM: <strong id="base-ip-value">Wird geladen...</strong> (kann nicht gelöscht werden)
+        </div>
+
+        <h3>
+            📊 System Status
+            <span class="info-icon">ℹ️
+                <span class="tooltip">
+                    <strong>System-Übersicht</strong>
+                    Zeigt den aktuellen Status dieser Alpine-VM.<br><br>
+                    <strong>Load Average (3 Zahlen):</strong><br>
+                    Durchschnittliche System-Auslastung der letzten 1, 5 und 15 Minuten.<br><br>
+                    <strong>Bedeutung:</strong><br>
+                    • 0.00 - 1.00 = Niedrig, alles entspannt ✓<br>
+                    • 1.00 - 4.00 = Moderat, System arbeitet<br>
+                    • 4.00 - 8.00 = Hoch, viel Last<br>
+                    • > 8.00 = Überlastet! (mehr als 8 CPU-Kerne)<br><br>
+                    Bei dir: 8 CPU-Kerne verfügbar
+                </span>
+            </span>
+            <button class="button" onclick="reloadStatus()">🔄 Aktualisieren</button>
+        </h3>
+        <div>
+            <iframe id="status-frame" src="/cgi-bin/status.cgi" height="200"></iframe>
+        </div>
+
+        <h3>
+            🌐 Netzwerk-Übersicht
+            <span class="info-icon">ℹ️
+                <span class="tooltip">
+                    <strong>Aktive Netzwerk-Geräte</strong>
+                    ARP-Scan aller erreichbaren Geräte im lokalen Netzwerk.<br><br>
+                    <strong>Anzeige:</strong><br>
+                    • IP-Adresse<br>
+                    • MAC-Adresse (Hardware-Kennung)<br>
+                    • Hersteller (aus MAC abgeleitet)<br>
+                    • Besondere Geräte (Gateway, konfigurierte Geräte)<br><br>
+                    <strong>Nutzen:</strong> Hilft beim Finden freier IP-Adressen für neue Weiterleitungen.
+                </span>
+            </span>
+            <button class="button" onclick="reloadNetwork()">🔄 Neu scannen</button>
+        </h3>
+        <div>
+            <iframe id="network-frame" src="/cgi-bin/network-status.cgi" height="300"></iframe>
+        </div>
+
+        <h3>
+            📱 Aktive Weiterleitungen
+            <span class="info-icon">ℹ️
+                <span class="tooltip">
+                    <strong>Konfigurierte Port-Weiterleitungen</strong>
+                    Liste aller eingerichteten SMB-Weiterleitungen.<br><br>
+                    <strong>Schema:</strong> Proxy-IP:445 → Ziel-Gerät:Port<br><br>
+                    <strong>Status-Anzeige:</strong><br>
+                    • ✓ Aktiv = socat-Prozess läuft<br>
+                    • ✗ Inaktiv = Prozess gestoppt/abgestürzt<br><br>
+                    Jede Zeile entspricht einem erreichbaren Android/iOS-Gerät über Windows Explorer.
+                </span>
+            </span>
+            <button class="button" onclick="reloadDevices()">🔄 Aktualisieren</button> <button class="button button-success" onclick="restartServices(event)">🔄 Services neu starten</button>
+        </h3>
+            <iframe id="devices-frame" src="/cgi-bin/list-devices.cgi" height="300"></iframe>
+
+        <h3>➕ Neue Weiterleitung einrichten</h3>
+        <div id="scan-status" style="margin: 10px 0; color: #666; font-size: 14px;">Lade...</div>
+        
+        <form id="add-form" class="add-device-form" onsubmit="submitDevice(event)">
+            <div class="form-row">
+                <label>
+                    Ziel-Gerät (IP):
+                    <span class="info-icon">ℹ️
+                        <span class="tooltip">
+                            <strong>Ziel-Gerät IP-Adresse</strong>
+                            Die IP-Adresse, mit der das Android/iOS-Gerät physikalisch im WLAN-Netzwerk erreichbar ist.<br><br>
+                            <div class="example">Beispiel: [netzwerk].29 (bei dir: 192.168.178.29)</div>
+                            <strong>Wo finden?</strong><br>
+                            • In den Netzwerk-Einstellungen des Smartphones<br>
+                            • In der Fritzbox unter "Heimnetz → Netzwerk"<br>
+                            • In der Netzwerk-Übersicht oben
+                        </span>
+                    </span>
+                </label>
+                <input type="text" id="device-ip" placeholder="192.168.178.29" required>
+            </div>
+            
+            <div class="form-row">
+                <label>
+                    Ziel-Port (Samba):
+                    <span class="info-icon">ℹ️
+                        <span class="tooltip">
+                            <strong>Samba-Server Port auf dem Gerät</strong>
+                            Der Port, auf dem der Samba-Server auf dem Android/iOS-Gerät lauscht.<br><br>
+                            <div class="example">Standard: 1445</div>
+                            <strong>Hintergrund:</strong><br>
+                            Auf nicht-gerooteten Geräten kann Port 445 (SMB-Standard) nicht verwendet werden (System-Einschränkung). Daher wird typischerweise Port 1445 als Alternative genutzt.<br><br>
+                            iOS hat zusätzliche Freigabe-Beschränkungen von Apple.
+                        </span>
+                    </span>
+                </label>
+                <input type="number" id="device-port" value="1445" required>
+            </div>
+            
+            <div class="form-row">
+                <label>
+                    Proxy-IP (Alpine-VM):
+                    <span class="info-icon">ℹ️
+                        <span class="tooltip">
+                            <strong>Weiterleitungs-IP auf dieser VM</strong>
+                            Eine freie IP-Adresse im Netzwerk, die diese Alpine-VM zusätzlich zur Haupt-IP verwendet.<br><br>
+                            <div class="example">Beispiel: [netzwerk].37 (bei dir: 192.168.178.37)</div>
+                            <strong>Funktion:</strong><br>
+                            Windows Explorer → 192.168.178.37:445 → VM leitet weiter → Gerät:1445<br><br>
+                            <strong>Wichtig:</strong><br>
+                            • IP muss im Netzwerk frei sein (wird automatisch geprüft)<br>
+                            • Darf nicht die Basis-IP sein<br>
+                            • Wird als zusätzliche IP dieser VM konfiguriert
+                        </span>
+                    </span>
+                </label>
+                <input type="text" id="vm-ip" placeholder="192.168.178.37" oninput="checkVMIP()" required>
+                <span id="vmip-status" class="status-indicator"></span>
+            </div>
+            
+            <div class="form-row">
+                <button type="submit" id="submit-btn" class="button">💾 Weiterleitung aktivieren</button>
+                <span id="submit-status"></span>
+            </div>
+        </form>
+    </div>
+</body>
+</html>
